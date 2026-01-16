@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>食光導航</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        :root {
+            --morandi-bg: #EAEAEA; --morandi-pink: #D4B2B0; --morandi-coffee: #8C7B6C;
+            --morandi-slate: #7A8A99; --morandi-clay: #A99985; --morandi-text: #555555;
+        }
+        body { background-color: var(--morandi-bg); color: var(--morandi-text); font-family: "PingFang TC", sans-serif; overflow-x: hidden; -webkit-tap-highlight-color: transparent; }
+        .search-results { max-height: 250px; overflow-y: auto; border-radius: 1.5rem; background: white; border: none; position: absolute; z-index: 100; width: 100%; display: none; margin-top: 8px; box-shadow: 0 15px 30px rgba(0,0,0,0.08); }
+        .search-item { padding: 16px; cursor: pointer; border-bottom: 1px solid #f2f2f2; font-size: 14px; color: var(--morandi-text); }
+        .recent-label { padding: 10px 16px; font-size: 11px; color: var(--morandi-pink); background: #fafafa; font-weight: bold; letter-spacing: 2px; }
+        .selected-chip { background-color: var(--morandi-pink); color: white; display: inline-flex; align-items: center; border-radius: 99px; padding: 6px 14px; font-size: 11px; margin: 4px; box-shadow: 0 4px 10px rgba(212, 178, 176, 0.3); }
+        .selected-chip span { margin-left: 8px; cursor: pointer; font-size: 16px; line-height: 1; }
+        .price-box { border: 1px solid #eee; background: white; padding: 10px 2px; border-radius: 15px; text-align: center; cursor: pointer; transition: all 0.3s; display: flex; flex-direction: column; justify-content: center; min-height: 55px; }
+        .price-box.active { background: var(--morandi-slate); color: white; border-color: var(--morandi-slate); box-shadow: 0 8px 15px rgba(122, 138, 153, 0.2); }
+        .page { transition: transform 0.4s ease-in-out, opacity 0.4s; position: absolute; width: 100%; min-height: 100vh; padding: 20px; }
+        .hidden-page { transform: translateX(100%); opacity: 0; pointer-events: none; }
+        .shop-card { animation: slideUp 0.5s ease-out forwards; opacity: 0; background: #FFFFFF; border-radius: 2.2rem; padding: 1.8rem; margin-bottom: 1.5rem; box-shadow: 0 10px 20px rgba(0,0,0,0.03); border: none; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .price-text { font-size: 13px; font-weight: 800; color: var(--morandi-clay); letter-spacing: 1px; }
+        .input-style { width: 100%; padding: 16px; background: white; border-radius: 1.2rem; border: none; outline: none; font-size: 14px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02); }
+        .cat-tag { font-size: 10px; padding: 3px 12px; border-radius: 20px; font-weight: bold; display: inline-block; background: #F5F5F5; color: #999; margin-right: 6px; }
+        .loader { border: 3px solid #eee; border-top: 3px solid var(--morandi-pink); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        /* 編輯 Modal 樣式 */
+        #editModal, #backupModal { background: rgba(0,0,0,0.1); display: none; align-items: center; justify-content: center; z-index: 1000; position: fixed; inset: 0; backdrop-filter: blur(10px); }
+    </style>
+</head>
+<body>
+
+    <div class="max-w-md mx-auto relative">
+        <div id="filterPage" class="page">
+            <header class="flex justify-between items-center py-8">
+                <div class="w-10"></div>
+                <h1 class="text-2xl font-bold tracking-[0.4em] text-[var(--morandi-coffee)]">食光導航</h1>
+                <button onclick="goToPocket()" class="text-[var(--morandi-pink)] font-bold text-xs bg-white px-4 py-2 rounded-full shadow-sm active:scale-90 transition-all">我的收藏</button>
+            </header>
+
+            <div class="bg-white/70 backdrop-blur-xl rounded-[3rem] p-8 space-y-8">
+                <div class="space-y-3 relative">
+                    <label class="font-bold text-xs text-[var(--morandi-coffee)] px-1 tracking-widest uppercase">探索區域 (含最近 5 筆紀錄)</label>
+                    <input type="text" id="distInput" placeholder="搜尋全台行政區..." class="input-style" onfocus="showDists()" oninput="filterDists()">
+                    <div id="distResults" class="search-results"></div>
+                    <div id="chipContainer" class="flex flex-wrap mt-2"></div>
+                </div>
+
+                <div class="space-y-3">
+                    <label class="font-bold text-xs text-[var(--morandi-coffee)] px-1 tracking-widest uppercase">預算區間 (複選)</label>
+                    <div class="grid grid-cols-4 gap-3">
+                        <div class="price-box active" data-val="1" onclick="togglePrice(this, 1)"><span class="font-bold text-sm">$</span><span class="text-[8px] opacity-70">200↓</span></div>
+                        <div class="price-box active" data-val="2" onclick="togglePrice(this, 2)"><span class="font-bold text-sm">$$</span><span class="text-[8px] opacity-70">200-600</span></div>
+                        <div class="price-box active" data-val="3" onclick="togglePrice(this, 3)"><span class="font-bold text-sm">$$$</span><span class="text-[8px] opacity-70">600-1200</span></div>
+                        <div class="price-box active" data-val="4" onclick="togglePrice(this, 4)"><span class="font-bold text-sm">$$$$</span><span class="text-[8px] opacity-70">1200↑</span></div>
+                    </div>
+                </div>
+
+                <div class="space-y-3">
+                    <label class="font-bold text-xs text-[var(--morandi-coffee)] block px-1 tracking-widest uppercase">美食類別 (複選)</label>
+                    <div class="grid grid-cols-3 gap-3" id="catGrid"></div>
+                </div>
+
+                <button onclick="fetchRealData()" class="w-full bg-[var(--morandi-slate)] text-white font-bold py-5 rounded-[2rem] shadow-lg active:scale-95 transition-all tracking-[0.5em] text-sm">展開驚喜食光</button>
+
+                <div class="p-6 bg-gray-50/50 rounded-[2.5rem] text-center space-y-3">
+                    <label class="font-bold text-xs text-gray-400 block tracking-widest uppercase">建立私藏店家</label>
+                    <input type="text" id="newUrl" placeholder="貼上 Google Map 網址解析店名" class="input-style bg-white text-[10px]" oninput="autoDetectName(this.value)">
+                    <input type="text" id="newName" placeholder="店家名稱" class="input-style bg-white text-xs">
+                    <div class="grid grid-cols-2 gap-3 mb-4">
+                        <select id="newCat" class="input-style bg-white text-xs py-3"></select>
+                        <select id="newPrice" class="input-style bg-white text-xs py-3">
+                            <option value="1">$ 200↓</option><option value="2" selected>$$ 200-600</option><option value="3">$$$ 600-1200</option><option value="4">$$$$ 1200↑</option>
+                        </select>
+                    </div>
+                    <button onclick="saveMyStore()" class="w-full bg-[var(--morandi-pink)] text-white py-4 rounded-2xl text-xs font-bold shadow-md active:scale-95 transition-all">存入口袋名單</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="resultPage" class="page hidden-page bg-[var(--morandi-bg)]">
+            <header class="flex justify-between items-center py-8 px-2 sticky top-0 bg-[var(--morandi-bg)] z-10">
+                <button onclick="goToFilter()" class="text-[var(--morandi-slate)] text-sm font-bold">← 修改條件</button>
+                <h2 class="text-lg font-bold text-[var(--morandi-coffee)] tracking-widest">探索結果</h2>
+                <button onclick="shuffleAndRender()" class="text-[var(--morandi-pink)] text-sm font-bold">🎲 換一批</button>
+            </header>
+            <div id="loadingArea" class="hidden text-center py-20"><div class="loader"></div><p class="text-[11px] text-gray-400 tracking-widest uppercase">正在同步全食數據與私藏店家...</p></div>
+            <div id="resultsList" class="pb-24 px-2"></div>
+        </div>
+
+        <div id="pocketPage" class="page hidden-page bg-[var(--morandi-bg)]">
+            <header class="flex justify-between items-center py-8 px-2 sticky top-0 bg-[var(--morandi-bg)] z-10">
+                <button onclick="goToFilter()" class="text-[var(--morandi-slate)] text-sm font-bold">← 返回</button>
+                <h2 class="text-lg font-bold text-[var(--morandi-pink)] tracking-widest">我的收藏</h2>
+                <button onclick="openBackupModal()" class="bg-white p-2 rounded-full shadow-sm text-xs">☁️ 備份</button>
+            </header>
+            <div id="pocketList" class="pb-24 px-2"></div>
+        </div>
+
+        <div id="editModal"><div class="bg-white rounded-[3rem] p-10 w-11/12 max-w-sm space-y-5 shadow-2xl">
+            <h3 class="text-center font-bold text-[var(--morandi-coffee)] tracking-widest uppercase">編輯店家資訊</h3>
+            <div class="space-y-4">
+                <input type="text" id="editName" placeholder="店家名稱" class="input-style bg-gray-50 text-xs">
+                <input type="text" id="editAddr" placeholder="地址 (或區名)" class="input-style bg-gray-50 text-xs">
+                <div class="grid grid-cols-2 gap-3">
+                    <select id="editCat" class="input-style bg-gray-50 text-xs py-3"></select>
+                    <select id="editPrice" class="input-style bg-gray-50 text-xs py-3">
+                        <option value="1">$ 200↓</option><option value="2">$$ 200-600</option><option value="3">$$$ 600-1200</option><option value="4">$$$$ 1200↑</option>
+                    </select>
+                </div>
+            </div>
+            <button onclick="commitEdit()" class="w-full py-4 bg-[var(--morandi-slate)] text-white rounded-2xl text-xs font-bold shadow-md">儲存修改</button>
+            <button onclick="closeEditModal()" class="w-full py-2 text-gray-300 text-[10px]">取消返回</button>
+        </div></div>
+
+        <div id="backupModal"><div class="bg-white rounded-[3rem] p-10 w-11/12 max-w-sm space-y-5 shadow-2xl">
+            <h3 class="text-center font-bold text-[var(--morandi-coffee)] tracking-widest uppercase">備份與同步</h3>
+            <textarea id="backupData" class="w-full h-32 p-4 text-[10px] bg-gray-50 border-none rounded-2xl outline-none" readonly></textarea>
+            <button onclick="copyBackup()" class="w-full py-4 bg-[var(--morandi-slate)] text-white rounded-2xl text-xs font-bold shadow-md">複製代碼</button>
+            <button onclick="importBackup()" class="w-full py-3 text-[var(--morandi-slate)] font-bold text-sm">匯入還原</button>
+            <button onclick="closeBackupModal()" class="w-full py-2 text-gray-300 text-[10px]">關閉</button>
+        </div></div>
+    </div>
+
+    <script>
+        // --- 368 行政區域完全展開 (保證不壓縮) ---
+        const DB = {
+            "基隆市": ["仁愛區", "信義區", "中正區", "中山區", "安樂區", "暖暖區", "七堵區"],
+            "台北市": ["中正區", "萬華區", "大同區", "中山區", "松山區", "大安區", "信義區", "內湖區", "南港區", "士林區", "北投區", "文山區"],
+            "新北市": ["板橋區", "三重區", "中和區", "永和區", "新莊區", "新店區", "土城區", "蘆洲區", "樹林區", "汐止區", "三峽區", "淡水區", "鶯歌區", "五股區", "泰山區", "林口區", "深坑區", "石碇區", "坪林區", "三芝區", "石門區", "八里區", "平溪區", "雙溪區", "貢寮區", "萬里區", "金山區", "瑞芳區", "烏來區"],
+            "桃園市": ["桃園區", "中壢區", "平鎮區", "八德區", "楊梅區", "蘆竹區", "大溪區", "龍潭區", "大園區", "龜山區", "觀音區", "新屋區", "復興區"],
+            "新竹市": ["東區", "北區", "香山區"],
+            "新竹縣": ["竹北市", "竹東鎮", "新埔鎮", "關西鎮", "湖口鄉", "新豐鄉", "芎林鄉", "橫山鄉", "北埔鄉", "寶山鄉", "峨眉鄉", "尖石鄉", "五峰鄉"],
+            "苗栗縣": ["苗栗市", "頭份市", "竹南鎮", "後龍鎮", "通霄鎮", "苑裡鎮", "卓蘭鎮", "造橋鄉", "西湖鄉", "頭屋鄉", "公館鄉", "銅鑼鄉", "三義鄉", "大湖鄉", "獅潭鄉", "三灣鄉", "南庄鄉", "泰安鄉"],
+            "台中市": ["中區", "東區", "南區", "西區", "北區", "北屯區", "西屯區", "南屯區", "太平區", "大里區", "霧峰區", "烏日區", "豐原區", "后里區", "石岡區", "東勢區", "新社區", "潭子區", "大雅區", "神岡區", "大甲區", "清水區", "沙鹿區", "大肚區", "龍井區", "梧棲區", "和平區", "外埔區", "大安區"],
+            "彰化縣": ["彰化市", "員林市", "和美鎮", "鹿港鎮", "溪湖鎮", "二林鎮", "田中鎮", "北斗鎮", "花壇鄉", "芬園鄉", "大村鄉", "永靖鄉", "伸港鄉", "線西鄉", "福興鄉", "秀水鄉", "埔心鄉", "埔鹽鄉", "大城鄉", "芳苑鄉", "竹塘鄉", "社頭鄉", "二水鄉", "田尾鄉", "埤頭鄉", "溪州鄉"],
+            "南投縣": ["南投市", "埔里鎮", "草屯鎮", "竹山鎮", "集集鎮", "名間鄉", "鹿谷鄉", "中寮鄉", "魚池鄉", "國姓鄉", "水里鄉", "信義鄉", "仁愛鄉"],
+            "雲林縣": ["斗六市", "斗南鎮", "虎尾鎮", "西螺鎮", "土庫鎮", "北港鎮", "古坑鄉", "大埤鄉", "莿桐鄉", "林內鄉", "二崙鄉", "崙背鄉", "麥寮鄉", "東勢鄉", "褒忠鄉", "台西鄉", "元長鄉", "四湖鄉", "口湖鄉", "水林鄉"],
+            "嘉義市": ["東區", "西區"],
+            "嘉義縣": ["太保市", "朴子市", "布袋鎮", "大林鎮", "民雄鄉", "溪口鄉", "新港鄉", "六腳鄉", "東石鄉", "義竹鄉", "鹿草鄉", "水上鄉", "中埔鄉", "竹崎鄉", "梅山鄉", "番路鄉", "大埔鄉", "阿里山鄉"],
+            "台南市": ["中西區", "東區", "南區", "北區", "安平區", "安南區", "永康區", "歸仁區", "新化區", "左鎮區", "玉井區", "楠西區", "南化區", "仁德區", "關廟區", "龍崎區", "官田區", "麻豆區", "佳里區", "西港區", "七股區", "將軍區", "學甲區", "北門區", "新營區", "後壁區", "白河區", "東山區", "六甲區", "下營區", "柳營區", "善化區", "大內區", "山上區", "新市區", "安定區", "鹽水區"],
+            "高雄市": ["新興區", "前金區", "苓雅區", "鹽埕區", "鼓山區", "旗津區", "前鎮區", "三民區", "楠梓區", "小港區", "左營區", "仁武區", "大社區", "岡山區", "路竹區", "阿蓮區", "田寮區", "燕巢區", "橋頭區", "梓官區", "彌陀區", "永安區", "湖內區", "鳳山區", "大寮區", "林園區", "鳥松區", "大樹區", "旗山區", "美濃區", "六龜區", "內門區", "杉林區", "甲仙區", "桃源區", "那瑪夏區", "茂林區", "茄萣區"],
+            "屏東縣": ["屏東市", "潮州鎮", "東港鎮", "恆春鎮", "萬丹鄉", "長治鄉", "麟洛鄉", "九如鄉", "里港鄉", "高樹鄉", "鹽埔鄉", "內埔鄉", "竹田鄉", "新埤鄉", "枋寮鄉", "新園鄉", "崁頂鄉", "林邊鄉", "南州鄉", "佳冬鄉", "瑞穗鄉", "琉球鄉", "車城鄉", "滿州鄉", "枋山鄉", "三地門鄉", "霧臺鄉", "瑪家鄉", "泰武鄉", "來義鄉", "春日鄉", "獅子鄉", "牡丹鄉", "萬巒鄉"],
+            "宜蘭縣": ["宜蘭市", "羅東鎮", "蘇澳鎮", "頭城鎮", "礁溪鄉", "壯圍鄉", "員山鄉", "冬山鄉", "五結鄉", "三星鄉", "大同鄉", "南澳鄉"],
+            "花蓮縣": ["花蓮市", "鳳林鎮", "玉里鎮", "新城鄉", "吉安鄉", "壽豐鄉", "光復鄉", "豐濱鄉", "瑞穗鄉", "富里鄉", "秀林鄉", "萬榮鄉", "卓溪鄉"],
+            "台東縣": ["台東市", "成功鎮", "關山鎮", "卑南鄉", "鹿野鄉", "池上鄉", "東河鄉", "長濱鄉", "太麻里鄉", "大武鄉", "綠島鄉", "蘭嶼鄉", "海端鄉", "延平鄉", "金峰鄉", "達仁鄉"],
+            "澎湖縣": ["馬公市", "湖西鄉", "白沙鄉", "西嶼鄉", "望安鄉", "七美鄉"],
+            "金門縣": ["金城鎮", "金湖鎮", "金沙鎮", "金寧鄉", "烈嶼鄉", "烏坵鄉"],
+            "連江縣": ["南竿鄉", "北竿鄉", "莒光鄉", "東引鄉"]
+        };
+        const allDistNames = []; for (const city in DB) { DB[city].forEach(d => allDistNames.push(`${city} ${d}`)); }
+
+        // --- 類別優化 (歐洲歸入義式, 燒肉火鍋合併, 小吃兜底) ---
+        const cats = ["義式", "日式", "鍋物/燒肉", "小吃", "早午餐", "咖啡廳"];
+        const FUZZY_DICT = { 
+            "義式": /義式|Pasta|Pizza|法式|德式|歐式|歐陸|西式|德奧|義法|餐廳|餐酒館|意大利菜|義大利麵|燉飯|小館|西餐|美式|瓦城|1010湘|泰國料理|湘菜/i, 
+            "日式": /日式|定食|日本料理|壽司|生魚片|拉麵|和食|居酒屋/i, 
+            "鍋物/燒肉": /火鍋|鍋物|燒肉|烤肉|燒烤|涮涮鍋/i, 
+            "早午餐": /早午餐|早點|早餐|Brunch|Breakfast|美而美|弘爺|瑞麟|麥味登|美芝城|拉亞|早安|漢堡|吐司|三明治|阿寶/i,
+            "咖啡廳": /咖啡|Cafe|下午茶|甜點/i,
+            "小吃": /小吃|麵店|滷肉|便當|滷味|水餃|亞洲|印度|料理|肉圓|古早味|筒仔米糕/i 
+        };
+        // 非美食過濾
+        const foodKeywords = /店|館|廳|坊|家|街|場|鋪|口|處|座|吧|食|飲|麵|飯|湯|鍋|燒|烤|早|午|晚|美|炸|冰|甜|餅|肉|菜|魚|雞|鴨|牛|拉麵|漢堡|壽司|麵包|三明治|披薩/;
+        const excludeKeywords = /五金|藥局|藥妝|生活館|通訊|水電|印刷|通訊|眼鏡|診所|機車|修車/;
+
+        let selectedSet = new Set(); let selectedPrices = new Set([1, 2, 3, 4]); 
+        let shuffledQueue = []; let queueIndex = 0; let currentEditIndex = -1;
+
+        // --- 導航連結 (修復 404，改用官方 API) ---
+       function getStableMapUrl(name) {
+            return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name)}`;
+        }
+
+        // --- 網址解析 ---
+        function autoDetectName(url) {
+            try {
+                const decoded = decodeURIComponent(url);
+                let match = decoded.match(/\/place\/([^/]+)/);
+                if (match && match[1]) {
+                    let name = match[1].replace(/\+/g, ' ');
+                    document.getElementById('newName').value = name;
+                    for(let k in FUZZY_DICT) { if(FUZZY_DICT[k].test(name)) { document.getElementById('newCat').value = k; break; } }
+                }
+            } catch(e) {}
+        }
+
+        async function getCoord(d) {
+            let cache = JSON.parse(localStorage.getItem('GEO_CACHE_V_FINAL') || "{}"); if (cache[d]) return cache[d];
+            try {
+                const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(d + " 台灣")}&limit=1`);
+                const data = await r.json();
+                if (data[0]) { const res = { lat: data[0].lat, lon: data[0].lon }; cache[d] = res; localStorage.setItem('GEO_CACHE_V_FINAL', JSON.stringify(cache)); return res; }
+            } catch(e) {} return null;
+        }
+
+        function parseAddr(tags, fallback) {
+            const city = tags["addr:city"] || ""; const dist = tags["addr:district"] || "";
+            const street = tags["addr:street"] || ""; const houseNum = tags["addr:housenumber"] ? tags["addr:housenumber"] + "號" : "";
+            if (street) return city + dist + street + houseNum;
+            return tags["addr:full"] || fallback || "地址詳見地圖";
+        }
+
+        // --- 核心搜尋：優先強制加入私藏店家 ---
+        async function fetchRealData() {
+            if (selectedSet.size === 0) return alert("請先選取行政區");
+            document.getElementById('filterPage').classList.add('hidden-page'); document.getElementById('resultPage').classList.remove('hidden-page');
+            document.getElementById('loadingArea').classList.remove('hidden'); document.getElementById('resultsList').innerHTML = "";
+            try {
+                const coords = (await Promise.all(Array.from(selectedSet).map(d => getCoord(d)))).filter(c => c !== null);
+                const selectedCatTags = Array.from(document.querySelectorAll('#catGrid input:checked')).map(el => el.value);
+
+                // 1. 抓取私藏 (核心修復：強制比對區域)
+                let myStores = JSON.parse(localStorage.getItem('muo_stores') || "[]").filter(s => {
+                    const kw = Array.from(selectedSet).map(d => d.split(' ')[1] || d);
+                    const distMatch = kw.some(k => s.dist.includes(k) || s.address.includes(k));
+                    const catMatch = selectedCatTags.length === 0 || selectedCatTags.some(tc => s.cat === tc || FUZZY_DICT[tc].test(s.name));
+                    const priceMatch = selectedPrices.has(s.priceVal);
+                    return distMatch && catMatch && priceMatch;
+                }).map(s => ({...s, isPrivate: true})).sort(() => Math.random() - 0.5);
+
+                // 2. 抓取網路 (15km)
+                let unionQuery = coords.map(l => `nwr["amenity"~"restaurant|fast_food|cafe|food_court|ice_cream"](around:15000,${l.lat},${l.lon});nwr["shop"~"bakery|deli"](around:15000,${l.lat},${l.lon});`).join('');
+                const osmRes = await fetch("https://overpass-api.de/api/interpreter", { method: "POST", body: `data=[out:json][timeout:90];(${unionQuery});out tags;` });
+                const osmData = await osmRes.json();
+                
+                let osmShops = osmData.elements.filter(e => e.tags && e.tags.name).map(e => {
+                    let n = e.tags.name;
+                    if (excludeKeywords.test(n) || !foodKeywords.test(n)) return null;
+                    let c = null; for(let k in FUZZY_DICT) { if(FUZZY_DICT[k].test(n)) { c = k; break; } }
+                    if (!c) c = "小吃"; 
+                    let pv = 2; if(/頂級|和牛|精緻/.test(n)) pv = 4; else if(/攤|便當|麵|早/.test(n)) pv = 1;
+                    return { name: n, address: parseAddr(e.tags, Array.from(selectedSet)[0]), cat: c, priceVal: pv, isPrivate: false, dist: Array.from(selectedSet)[0] };
+                }).filter(s => s !== null && (selectedCatTags.length === 0 || selectedCatTags.includes(s.cat)) && selectedPrices.has(s.priceVal))
+                .sort(() => Math.random() - 0.5);
+
+                const nameMap = new Set();
+                const uniqueMyStores = myStores.filter(s => { if(nameMap.has(s.name)) return false; nameMap.add(s.name); return true; });
+                const uniqueOsmShops = osmShops.filter(s => { if(nameMap.has(s.name)) return false; nameMap.add(s.name); return true; });
+
+                // 私藏排最前面
+                shuffledQueue = [...uniqueMyStores, ...uniqueOsmShops];
+
+                localStorage.setItem('LAST_RESULT_CACHE', JSON.stringify(shuffledQueue));
+                queueIndex = 0; document.getElementById('loadingArea').classList.add('hidden'); shuffleAndRender();
+            } catch (e) { document.getElementById('loadingArea').classList.add('hidden'); alert("資料量較大，請重按一次展開！"); }
+        }
+
+        function shuffleAndRender() {
+            const list = document.getElementById('resultsList'); const pLabels = ["", "$", "$$", "$$$", "$$$$"];
+            if (queueIndex >= shuffledQueue.length) { queueIndex = 0; }
+            let selection = shuffledQueue.slice(queueIndex, queueIndex + 20);
+            if (selection.length === 0) return list.innerHTML = `<p class="p-20 text-center text-gray-400">查無符合結果。</p>`;
+            
+            list.innerHTML = selection.map(shop => `<div class="shop-card"><div class="flex justify-between items-start mb-2"><div class="pr-4 flex-1">
+                <h3 class="font-bold text-[17px] mb-2 ${shop.isPrivate ? 'text-[var(--morandi-pink)]' : 'text-[var(--morandi-coffee)]'}">${shop.name}</h3>
+                <div class="cat-tag">${shop.cat}</div></div><div class="flex flex-col items-end min-w-[70px]"><span class="price-text">${pLabels[shop.priceVal]}</span></div></div>
+                <p class="text-[11px] text-gray-400 mb-6">📍 ${shop.address}</p><div class="flex justify-end gap-3">
+                ${shop.isPrivate ? `<button onclick="deleteStore('${shop.name.replace(/'/g, "\\'")}', '${shop.dist}')" class="text-red-300 text-[10px] font-bold px-4 py-2 mr-auto">刪除</button>` : ''}
+                <button onclick="window.open('https://www.google.com/search?q=${encodeURIComponent(shop.name)}')" class="text-[var(--morandi-slate)] border border-[var(--morandi-slate)] px-5 py-2.5 rounded-xl text-[10px] font-bold">食記</button>
+                <button onclick="window.open('${getStableMapUrl(shop.name)}')" class="bg-[var(--morandi-slate)] text-white px-6 py-2.5 rounded-xl text-[10px] font-bold shadow-md">導航</button></div></div>`).join('');
+            queueIndex += 20; window.scrollTo(0,0);
+        }
+
+        // --- 編輯功能實作 ---
+        function editStore(i) {
+            currentEditIndex = i;
+            const m = JSON.parse(localStorage.getItem('muo_stores') || "[]");
+            const s = m[i];
+            document.getElementById('editName').value = s.name;
+            document.getElementById('editAddr').value = s.address;
+            document.getElementById('editCat').value = s.cat;
+            document.getElementById('editPrice').value = s.priceVal;
+            document.getElementById('editModal').style.display = 'flex';
+        }
+
+        function closeEditModal() { document.getElementById('editModal').style.display = 'none'; }
+
+        function commitEdit() {
+            let m = JSON.parse(localStorage.getItem('muo_stores') || "[]");
+            m[currentEditIndex].name = document.getElementById('editName').value.trim();
+            m[currentEditIndex].address = document.getElementById('editAddr').value.trim();
+            m[currentEditIndex].cat = document.getElementById('editCat').value;
+            m[currentEditIndex].priceVal = parseInt(document.getElementById('editPrice').value);
+            
+            localStorage.setItem('muo_stores', JSON.stringify(m));
+            alert("✅ 修改成功！");
+            closeEditModal();
+            renderPocketList();
+        }
+
+        // --- 行政區歷史紀錄 ---
+        function showDists() {
+            const val = document.getElementById('distInput').value; const res = document.getElementById('distResults');
+            if (!val) {
+                const history = JSON.parse(localStorage.getItem('SEARCH_HISTORY_V15') || "[]");
+                if (history.length > 0) {
+                    res.innerHTML = `<div class="recent-label">最近搜尋區域</div>` + history.map(d => `<div class="search-item" onclick="selectSearch('${d}')">${d}</div>`).join('');
+                    res.style.display = 'block'; return;
+                }
+                res.style.display = 'none'; return;
+            }
+            filterDists();
+        }
+
+        function selectSearch(d) {
+            selectedSet.add(d);
+            let history = JSON.parse(localStorage.getItem('SEARCH_HISTORY_V15') || "[]");
+            history = [d, ...history.filter(i => i !== d)].slice(0, 5);
+            localStorage.setItem('SEARCH_HISTORY_V15', JSON.stringify(history));
+            document.getElementById('distInput').value = ''; document.getElementById('distResults').style.display = 'none';
+            renderChips(); saveConfig();
+        }
+
+        function saveMyStore() {
+            const n = document.getElementById('newName').value.trim(); const d = Array.from(selectedSet)[0] || "自訂區域";
+            if (!n) return alert("請輸入店名");
+            let m = JSON.parse(localStorage.getItem('muo_stores') || "[]");
+            if (m.some(s => s.name === n)) { if (!confirm(`「${n}」已在收藏中，是否覆蓋新資訊？`)) return; m = m.filter(s => s.name !== n); }
+            m.push({ name: n, cat: document.getElementById('newCat').value, priceVal: parseInt(document.getElementById('newPrice').value), dist: d, address: d, isPrivate: true });
+            localStorage.setItem('muo_stores', JSON.stringify(m)); alert("✅ 成功存入！"); document.getElementById('newName').value = ""; document.getElementById('newUrl').value = "";
+        }
+
+        function togglePrice(el, v) { if (selectedPrices.has(v)) { if (selectedPrices.size > 1) { selectedPrices.delete(v); el.classList.remove('active'); } } else { selectedPrices.add(v); el.classList.add('active'); } saveConfig(); }
+        function filterDists() { const v = document.getElementById('distInput').value; const r = document.getElementById('distResults'); const f = allDistNames.filter(d => d.includes(v)).slice(0, 15); r.innerHTML = f.map(d => `<div class="search-item" onclick="selectSearch('${d}')">${d}</div>`).join(''); r.style.display = 'block'; }
+        function renderChips() { document.getElementById('chipContainer').innerHTML = Array.from(selectedSet).map(d => `<div class="selected-chip">${d}<span onclick="removeChip('${d}')"> ×</span></div>`).join(''); }
+        function removeChip(d) { selectedSet.delete(d); renderChips(); saveConfig(); }
+   // --- 頁面跳轉 (關鍵修正：返回置頂) ---
+        function goToFilter() { 
+            document.querySelectorAll('.page').forEach(p => p.classList.add('hidden-page')); 
+            document.getElementById('filterPage').classList.remove('hidden-page'); 
+            window.scrollTo(0, 0); // 跳回食光導覽最上方
+        } 
+        
+      
+        function goToPocket() { document.querySelectorAll('.page').forEach(p => p.classList.add('hidden-page')); document.getElementById('pocketPage').classList.remove('hidden-page'); renderPocketList(); }
+        
+        function renderPocketList() { 
+            const list = document.getElementById('pocketList'); const m = JSON.parse(localStorage.getItem('muo_stores') || "[]"); const pLabels = ["", "$", "$$", "$$$", "$$$$"]; 
+            if (m.length === 0) return list.innerHTML = `<p class="p-20 text-center text-gray-400 text-xs">空清單。</p>`; 
+            list.innerHTML = m.map((s, i) => `<div class="shop-card"><div class="flex justify-between items-start mb-2"><div class="pr-4 flex-1"><h3 class="font-bold text-[17px] text-[var(--morandi-pink)] mb-2">${s.name}</h3><div class="cat-tag" style="color:var(--morandi-pink); background:#FEF5F4;">${s.cat}</div></div><div class="flex flex-col items-end min-w-[70px]"><span class="price-text">${pLabels[s.priceVal]}</span></div></div><p class="text-[11px] text-gray-400 mb-6">📍 ${s.address}</p><div class="flex justify-end gap-3">
+                <button onclick="deleteStore('${s.name.replace(/'/g, "\\'")}', '${s.dist}', true)" class="text-red-300 text-[10px] font-bold px-4 py-2 mr-auto">刪除</button>
+                <button onclick="editStore(${i})" class="text-[var(--morandi-slate)] border border-[var(--morandi-slate)] px-5 py-2.5 rounded-xl text-[10px] font-bold">編輯</button>
+                <button onclick="window.open('${getStableMapUrl(s.name)}')" class="bg-[var(--morandi-slate)] text-white px-6 py-2.5 rounded-xl text-[10px] font-bold shadow-md">導航</button></div></div>`).join(''); 
+        }
+
+        function deleteStore(n, d, f) { if (confirm(`刪除「${n}」？`)) { let m = JSON.parse(localStorage.getItem('muo_stores')); localStorage.setItem('muo_stores', JSON.stringify(m.filter(s => !(s.name === n && s.dist === d)))); if (f) renderPocketList(); else fetchRealData(); } }
+        function saveConfig() { localStorage.setItem('config_v15', JSON.stringify({ dists: Array.from(selectedSet), prices: Array.from(selectedPrices) })); }
+        function openBackupModal() { document.getElementById('backupData').value = localStorage.getItem('muo_stores') || "[]"; document.getElementById('backupModal').style.display = 'flex'; }
+        function closeBackupModal() { document.getElementById('backupModal').style.display = 'none'; }
+        function copyBackup() { const el = document.getElementById('backupData'); el.select(); document.execCommand('copy'); alert("複製成功！"); }
+        function importBackup() { const code = prompt("請貼入代碼："); if (code) { try { if (Array.isArray(JSON.parse(code))) { localStorage.setItem('muo_stores', code); alert("還原成功！"); renderPocketList(); closeBackupModal(); } } catch(e) { alert("無效。"); } } }
+
+        function restoreConfig() { 
+            const s = localStorage.getItem('config_v16'); if (s) { const c = JSON.parse(s); if (c.dists) c.dists.forEach(d => selectedSet.add(d)); if (c.prices) { selectedPrices = new Set(c.prices); document.querySelectorAll('.price-box').forEach(b => selectedPrices.has(parseInt(b.dataset.val)) ? b.classList.add('active') : b.classList.remove('active')); } renderChips(); }
+            const last = localStorage.getItem('LAST_RESULT_CACHE'); if (last) { shuffledQueue = JSON.parse(last); }
+            // 修正點：移除自動切換到 resultPage 的代碼，強制保持在首頁
+        }
+
+        document.getElementById('catGrid').innerHTML = cats.map(c => `<label><input type="checkbox" value="${c}" onchange="saveConfig()" class="hidden peer"><div class="text-center py-4 border-none rounded-2xl text-[12px] text-gray-400 bg-white shadow-sm peer-checked:bg-[var(--morandi-pink)] peer-checked:text-white transition-all">${c}</div></label>`).join('');
+        document.getElementById('newCat').innerHTML = cats.map(c => `<option value="${c}">${c}</option>`).join('');
+        document.getElementById('editCat').innerHTML = cats.map(c => `<option value="${c}">${c}</option>`).join('');
+        document.addEventListener('click', (e) => { if (!e.target.closest('#distInput')) document.getElementById('distResults').style.display = 'none'; });
+        restoreConfig();
+    </script>
+</body>
+</html>
